@@ -6,6 +6,9 @@
 data.json
 snapshot.html
 
+# Local screenshots / scratch (may contain private game data)
+SS/
+
 # Node
 node_modules/
 npm-debug.log*
