@@ -30,11 +30,14 @@ node server.mjs
 This is the whole point. The dashboard is split so the key is **never** exposed:
 
 - You paste the key into the **onboarding screen**, which `POST`s it to your
-  **local** server (`localhost`) — never to any third party.
-- The server keeps the key in memory and (optionally) in a local `.remix-key`
-  file that is **git-ignored**.
+  **local** server (`localhost`) — never to us, never to any third party.
+- The server keeps the key in memory and, **only if you leave the checkbox
+  ticked**, writes it to a local, **git-ignored `.env`** file (as
+  `REMIX_API_KEY=…`). It is never written to `localStorage` or the browser.
 - The browser only ever receives **aggregated stats** from `/api/data` — the
   key is never sent back to the page and never appears in `snapshot.html`.
+- Don't want to type it into a UI at all? Put `REMIX_API_KEY=sk_live_…` in a
+  `.env` file next to the server and just start it — onboarding is skipped.
 
 > Treat your `sk_live_...` key like a password — it can create and modify your
 > games. Never paste it into a website you don't control, and never commit it.
@@ -60,8 +63,9 @@ Produces `snapshot.html` (data baked in, **no key**) — double-click to open or
 send to a teammate. Also writes `data.json` (raw aggregate).
 
 ### Where the key is read from
-In priority order: `REMIX_API_KEY` env var → `.remix-key` file → the
-onboarding screen (server mode). Get a key at **<https://remix.gg/api>**.
+In priority order: `REMIX_API_KEY` env var → local `.env` file → legacy
+`.remix-key` file → the onboarding screen (server mode). Get a key at
+**<https://remix.gg/api>**.
 
 ## How it works
 

@@ -71,8 +71,13 @@
   .btn.ghost{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
   .btn.ghost:hover{border-color:var(--lime);filter:none}
   .ob-err{color:#ff6b6b;font-size:12.5px;margin-top:12px;text-align:center;min-height:16px}
-  .ob-hint{color:var(--dim);font-size:11.5px;margin-top:16px;text-align:center}
-  .ob-hint code{color:var(--mut);background:#04060d;padding:1px 6px;border-radius:5px}
+  .save-row{display:flex;align-items:center;gap:8px;justify-content:center;color:var(--mut);font-size:12px;margin-top:12px;cursor:pointer}
+  .save-row input{accent-color:var(--lime)}
+  .save-row code,.trust code,.ob-hint code{color:var(--mut);background:#04060d;padding:1px 5px;border-radius:5px}
+  .trust{margin-top:14px;font-size:12px;line-height:1.55;color:#cfeaa0;background:rgba(182,255,0,.06);
+    border:1px solid rgba(182,255,0,.22);border-radius:12px;padding:11px 13px}
+  .trust b{color:var(--lime)} .trust code{color:#cfe6ff}
+  .ob-hint{color:var(--dim);font-size:11.5px;margin-top:14px;text-align:center;line-height:1.5}
 
   /* ---- loading ---- */
   #loading{display:none;min-height:70vh;flex-direction:column;align-items:center;justify-content:center;gap:16px}
@@ -172,13 +177,15 @@
     <div class="ob-card">
       <div class="brand"><span class="mark"><i></i></span><span class="wordmark display">re<b>m</b>ix</span></div>
       <h1 class="display">Creator Analytics</h1>
-      <p>Paste your Remix API key to pull your games' live stats. The key stays on your machine — it's only sent to your local server, never to the browser or anyone else.</p>
+      <p>Paste your Remix API key to load your games' stats.</p>
       <div class="field">
         <input id="keyInput" type="password" placeholder="sk_live_…" autocomplete="off" spellcheck="false" />
         <button class="btn" id="connectBtn">Connect</button>
       </div>
+      <label class="save-row"><input type="checkbox" id="saveEnv" checked /> Remember it — save to a local <code>.env</code> (git-ignored)</label>
       <div class="ob-err" id="obErr"></div>
-      <div class="ob-hint">Get a key at <a href="https://remix.gg/api" target="_blank" rel="noopener">remix.gg/api</a> · stored locally in <code>.remix-key</code></div>
+      <div class="trust"><b>🔒 Your key never leaves this machine.</b> It's sent only to your own local server on <code>localhost</code> — never to us, never to any third party, never to the browser or <code>localStorage</code>. This tool is open-source; you can read every line before pasting. The only place it's ever written is the local <code>.env</code> above (and only if you leave that ticked).</div>
+      <div class="ob-hint">Prefer not to type it here at all? Put <code>REMIX_API_KEY=sk_live_…</code> in a <code>.env</code> file next to the server and just refresh — that's the safest. Get a key at <a href="https://remix.gg/api" target="_blank" rel="noopener">remix.gg/api</a>.</div>
     </div>
   </div>
 
@@ -435,10 +442,12 @@ function pollUntilData(){ clearTimeout(pollTimer);
 async function connect(){
   const key=$("keyInput").value.trim(); if(!key){ $("obErr").textContent="Enter your API key."; return; }
   $("connectBtn").disabled=true; $("connectBtn").textContent="…"; $("obErr").textContent="";
-  try{ const r=await fetch("/api/key",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({key})});
+  try{ const save=$("saveEnv").checked;
+    const r=await fetch("/api/key",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({key,save})});
     const j=await r.json();
     if(!j.ok){ $("obErr").textContent=j.error||"Invalid key."; $("connectBtn").disabled=false; $("connectBtn").textContent="Connect"; return; }
-    $("keyInput").value=""; show("loading"); $("loadSub").textContent=`Connected · ${j.games} games found. Pulling full score history…`; pollUntilData();
+    $("keyInput").value=""; show("loading");
+    $("loadSub").textContent=`Connected · ${j.games} games found${j.saved?" · saved to .env":""}. Pulling full history…`; pollUntilData();
   }catch(e){ $("obErr").textContent="Server unreachable."; $("connectBtn").disabled=false; $("connectBtn").textContent="Connect"; }
 }
 $("connectBtn").addEventListener("click",connect);

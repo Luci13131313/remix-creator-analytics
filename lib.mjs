@@ -3,16 +3,25 @@
 // aggregates it into a single compact object the dashboard/snapshot render from.
 // The API key stays here (server-side only) and is NEVER written into output HTML.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASE = "https://remix.gg/api/v1";
+const ENV_FILE = join(HERE, ".env");
 
-// Key resolution order: env var -> local .remix-key file -> repo .mcp.json.
+function readEnvFile() {
+  if (!existsSync(ENV_FILE)) return null;
+  const m = readFileSync(ENV_FILE, "utf8").match(/^\s*REMIX_API_KEY\s*=\s*(.+?)\s*$/m);
+  return m ? m[1].replace(/^["']|["']$/g, "").trim() : null;
+}
+
+// Key resolution order: process env -> .env file -> legacy .remix-key -> repo .mcp.json.
 export function readKey() {
   if (process.env.REMIX_API_KEY) return process.env.REMIX_API_KEY.trim();
+  const fromEnv = readEnvFile();
+  if (fromEnv) return fromEnv;
   const local = join(HERE, ".remix-key");
   if (existsSync(local)) {
     const k = readFileSync(local, "utf8").trim();
@@ -24,7 +33,21 @@ export function readKey() {
     const k = j?.mcpServers?.["remix-mcp"]?.env?.REMIX_API_KEY;
     if (k) return k.trim();
   }
-  throw new Error("No Remix API key found (env REMIX_API_KEY, .remix-key, or .mcp.json).");
+  throw new Error("No Remix API key found (env REMIX_API_KEY, .env, .remix-key, or .mcp.json).");
+}
+
+// Persist the key to a local, git-ignored .env (preserving any other vars).
+// This is the ONLY place the key is written — never to the browser/localStorage.
+export function saveKeyToEnv(key) {
+  let lines = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8").split(/\r?\n/) : [];
+  let found = false;
+  lines = lines.map((l) =>
+    /^\s*REMIX_API_KEY\s*=/.test(l) ? ((found = true), `REMIX_API_KEY=${key}`) : l
+  );
+  if (!found) lines.push(`REMIX_API_KEY=${key}`);
+  while (lines.length && lines[lines.length - 1] === "") lines.pop();
+  writeFileSync(ENV_FILE, lines.join("\n") + "\n");
+  return ENV_FILE;
 }
 
 const PAGE = 500;

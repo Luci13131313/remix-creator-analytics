@@ -4,10 +4,10 @@
 // localhost and never receives it back — only aggregated stats are served.
 // Usage: node server.mjs [--port 8787] [--fast] [--interval 300]
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { fetchAll, validateKey, readKey } from "./lib.mjs";
+import { fetchAll, validateKey, readKey, saveKeyToEnv } from "./lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = (flag, def) => {
@@ -78,14 +78,16 @@ createServer(async (req, res) => {
   }
 
   if (url === "/api/key" && req.method === "POST") {
-    const { key } = await readBody(req);
+    const { key, save } = await readBody(req);
     if (!key || typeof key !== "string") return send(res, 400, { ok: false, error: "missing key" });
     const v = await validateKey(key.trim());
     if (!v.ok) return send(res, 401, { ok: false, error: v.error });
     apiKey = key.trim();
-    try { writeFileSync(join(HERE, ".remix-key"), apiKey + "\n"); } catch {}
+    // Held in memory for this run. Written to a local .env ONLY if the user opted in.
+    let saved = false;
+    if (save !== false) { try { saveKeyToEnv(apiKey); saved = true; } catch {} }
     refresh(); // kick off in background
-    return send(res, 200, { ok: true, games: v.count });
+    return send(res, 200, { ok: true, games: v.count, saved });
   }
 
   if (url === "/api/data") {
