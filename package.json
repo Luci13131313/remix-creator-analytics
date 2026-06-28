@@ -1,0 +1,21 @@
+{
+  "name": "remix-creator-analytics",
+  "version": "1.0.0",
+  "description": "A self-hosted analytics dashboard for Remix (remix.gg) game creators. Bring your own API key, see your games' scores, players, leaderboards and trends — Remix-branded, zero dependencies.",
+  "type": "module",
+  "bin": {
+    "remix-analytics": "server.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "fast": "node server.mjs --fast",
+    "snapshot": "node build-snapshot.mjs",
+    "snapshot:fast": "node build-snapshot.mjs --fast"
+  },
+  "keywords": ["remix", "remix.gg", "analytics", "dashboard", "game-creator", "leaderboard"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}

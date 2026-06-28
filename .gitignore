@@ -1,0 +1,17 @@
+# Secrets — NEVER commit
+.remix-key
+.env
+
+# Generated data / output (each creator generates their own)
+data.json
+snapshot.html
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
