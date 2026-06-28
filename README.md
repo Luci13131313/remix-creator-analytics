@@ -14,14 +14,14 @@ node server.mjs
 
 ## Features
 
-- **Overview** — total scores, unique players (de-duped across all your games),
+- **Overview** — total plays, unique players (de-duped across all your games),
   24h / 7d activity, most-played game.
-- **Charts** — scores-per-day trend, activity by hour-of-day, top games bar,
-  players-vs-scores comparison.
+- **Charts** — plays-per-day trend, activity by hour-of-day, top games bar,
+  players-vs-plays comparison.
 - **Per-game drill-down** — daily scores, score distribution histogram, hourly
   activity, top-20 leaderboard with avatars, and the most recent plays.
-- **Launch dates** — first-score date as a launch proxy (the API has no
-  `publishedAt`), with the game record's `createdAt` in the tooltip.
+- **First play** — the earliest recorded-score date (the API exposes no
+  `publishedAt` / launch date), with the game record's `createdAt` in the tooltip.
 - **Two modes** — a live auto-refreshing server, or a static self-contained
   `snapshot.html` you can share (no key inside).
 
@@ -73,10 +73,11 @@ Built on the Remix creator API (`https://remix.gg/api/v1`, bearer auth):
 | `GET /games/:id/leaderboard` | top players (best score per user) |
 | `GET /games/:id/scores` | full score feed — paginated via `next_cursor`, `limit` up to 500 |
 
-> **"Scores" ≠ raw plays.** The API only exposes score submissions
-> (leaderboard entries). Real play counts are higher — opens without a submitted
-> score, and some remix.gg sessions, aren't counted. The dashboard labels this
-> honestly. There is no plays/sessions/views endpoint at the time of writing.
+> **"Plays" here = recorded scores, not every play.** The API only exposes
+> score submissions (leaderboard entries). Games played without reaching
+> game-over, or played through remix.gg, don't create a leaderboard / score
+> record — so real play counts are higher than shown. There is no
+> plays/sessions/views endpoint at the time of writing.
 
 ## Files
 | File | Role |
