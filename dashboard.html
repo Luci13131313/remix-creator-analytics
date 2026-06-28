@@ -42,12 +42,10 @@
   .display{font-family:var(--display);letter-spacing:-.01em}
 
   /* ---- brand wordmark ---- */
-  .brand{display:flex;align-items:center;gap:10px}
-  .mark{width:30px;height:30px;border-radius:9px;background:var(--lime);position:relative;flex:none;
-    box-shadow:0 0 22px rgba(182,255,0,.45)}
-  .mark:before,.mark:after{content:"";position:absolute;width:5px;height:11px;border-radius:3px;background:var(--bg);top:6px}
-  .mark:before{left:8px;transform:rotate(-18deg)} .mark:after{right:8px;transform:rotate(18deg)}
-  .mark i{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--bg);left:11px;bottom:5px}
+  .brand{display:flex;align-items:center;gap:11px}
+  .logo{width:30px;height:30px;flex:none;background:url('data:image/webp;base64,UklGRl4NAABXRUJQVlA4WAoAAAAQAAAAFAMAwAIAQUxQSOEDAAABkFBrb91IghAGawhhkGXQYdAwmDIwhEAwhEAwhEAQhEDYt+eV2tKvs+ePCDiMJAlqehLAbk3+2hHEP6yRbzLqlB+miNJ/6D/0H/oP/Yf+Q/+h/9B/6D/0H/oP/Yf+Q/+h/9B/6D/0H/oP/Yf+Q/+h/9B/6D/0H/oP/Yf+Q/+h/9B/6D/0H/oP/Yf+8/8Qt++jTrUGMAj9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/Qf+g/9h/5D/6H/0H/oP/QfYKIxgawaEkgq8cAhIpKOWODM0x8kFqRtkn+TchRQF2kn7SHQ9iJvZ9UIKHlXwC+VJO9NKjFQEgbSeZePJqO/JAykmuRzclOwl3xeHgpz61VaCQPpd8lnZ1bklwD/sbA2Sz5bgnfJl71QgB+mSxhIdZYvTyqgLrnAiwPXtyRhIJVJLpQpA/qW5CLSjuCSu1wwq6K+BNoTjz3JZZMKhEvCQDpf5fLJJ3ZLwkCqVyjB80z2WOSJ8lDEloSBtE3ydJkVuCXAfyyszZIwkM4sz5ykAC0JA6ku8vxJGyZLevDigOUtSRhIZZKeZMp4LOmFVMC4cu2JhL+STiWjcOXaIQmBJZ2SQHuYDuiZbLukaxJcD9PxPJPVRXqahwKupJMSMg/ToT3xqLP0OauirKS/EsZWrl2W8FUSBlK9goXnmay+yCCSKqoO08NAKkmGkinDqWQYUsHSj24cigSfklElg+gwfUQSgEpGJWHuMB3QM9l2ydgktJQMM4si7TC9szNZvJSMUgLWYTq0Jx51lkFnVZCUDFiCyC1JGEil+SoMpHoFC88zWb2LFZJ2UJSEgbQnsUWmjI0S4D8WPtsltpC8X2KWZAwcpoeBdDRLzCJB5jAd0DPZrVliHAmkJbj6AZ26iK3yUHd/DZKZJGCUIHviURexWlb1cYnFJNfekpjuxeHdlavhJECU4Hkmq3cxY9Lu05IwkPYkxsyUnVliSKl48jA9DKTfJXZNduFhehhIxyLmzU09XgLomezWLLGu5OuvQcLzTFYXMXZW9dbK1c6Sh0vwPJOtTSsMJH0RyycVvx6m43kmW5I4IKv6swTPM9nzLn5I2l1SEgZSTeKOZF+UeEIqjjhMDwOpXeIQyQMlYSDpIv7JTR1WAuiZ7NYsCQOpzuKpzGr9Esc8Fjb2LUkYSGUSnyWplW9JHCaZeOXqMsmwJc57cUBm5SoAVlA4IFYJAAAwvACdASoVA8ECPm02mkkkIyKhI3j4WIANiWdu4XdNAPb0gM/wg9kRB/wd/CCsq+Vz7N7Bf7H/YPwz6V3qAeYD+Afw3/Kf0b3dekA/XTrgP4B6gH6wekf7I/7a/tJ7Mf/41rLw9/WfwR/QD+AfkCZw8kzqO+SAIVLEgJASAkAzKBpn4YwxhQz8SAkBICQEgJASAkBICQEZokAtfliQEZokAtfliQEgJkcTip3tJuCd4OaXNLKNOoNwTZn1B3RkZbM/DF3vQhNVgKaXNLKNOoNwTvBzS5ZiAweOSOuPdS74NZHhlIcoGmfhjDGFDPsoXH2++f9zYZ77c8ByEAbYEgI/L2AwZSAkBICQDMoBzE7blmfdUnOC1s1RALX5WXsBgykBICQEgGZQDmMoZfb8rFzFI1NbQZLEgIyRvaz8SAkBICP0NwifvHSCsdWNaXlL8ZxRlsz7tPt7MpASAkBIBmUA5jKIed+GFgEL6XHbYy2Z+E9rStJALX5YkBGaI5lWkLkiS1rZqoqLIi0yMtmVtaVpIBa/LEgIzRHMq0hckSWtbNVFRZGD1r8sRkje1n4kBICQEfobhE/eOkFY6sa0vKX4zijLZn3afb2ZSAkBICQDMoBzGUQ878MLAIX0uO2xlsz8J7WlSpa/ZaxGIxGIxGIxGIxGIxGIxGIUA5jKIed+GFgEL6XHbYy2Z+E9rUfhjDGGMMYYu0/eOkFY6sa0vKX4zijLZn3afdMjLZn4YwxhhgY+9XFTDm0nOC1s4UyMtmepI8EONazwnUN85/ubNtr5bsHGtZ4TqG+c/3Nm2yGtmfhi6pOcFrZwpkZbM/DGGMMYYwxhjDGGMMYYwm1pM5MYpuM4oy2Z+GMMYYwxhjDGGMMYYwxhhYBC+lx22MtmfhjDGGMMYYwxhjDGGMMYYuqTnBa2cKZGWzPUeCniABzeaWFWFYqhiQEgFyBY1LfRzSyjMrkXAwEN61+WF+L8iTAGU0s1+VlHj3sbsx3dZ61+Vi5nwh3/sOKlwHWOsWh965lLQimHWOrNrUesAhMjLZGldqPYGIjLZn3VJzgtbOFMjLZnsDERdnLASAj8XRdiMkb7etflYuYpGpraDJYkBGSN9uNmqIBa+bjxJrZtM9a/LC/F+RJgDKaWa/Ky9gkh4vt61+OjzO3z6V61+WIxHWkKqlEiS1+WGNK9ZI6z1r8rF0XYjJG+3rX5WLmKRqa2gyWJARkjfbjZqiAWvm48Sa2bTPWvywvxfkSYAymlmvysvYJIeL7etfjo8zt8+letfliMR1pCqpRIktflhjSvWSOs9a/KxdF2IyRvt61+Vi5ikamtoMliQEYLG7oQkOaWUadNKwppNmvywuBiYUGXOH2jYAHJcaMqI8ExElr8sL8X5EmAMppZr8sbY/LVJHY6x1jxxSbRCMSAkBGI60hVUokSWvyxICQEgJASAkBICQEgJAR+LmKRqa2gyWJASAkBICQEgJASAkBICQEgF+L8iSgWdmkb5z/c2bbXy3YONazwnUN85/ubNtr5bsHGtZ4TqG+c/3Nm218t2DjWs8J1DfOf7mzba+W7BxrTV+bEPmrA0z8MYYwxhjDGGMMYYwxhjDGGMMYYxKwkBICQEgJASAkBICQEgJASAkBICQEhQ50fiQEgJASAkBICQEgJASAkBICQEgIyqtLEeNeInCCJuMOsdY6x1jrHWOsdY6x1jrHWOrP67QIXnA8DPZU6js2X6j9w4kBICQEgJASAkBICQEgJAR+cFfmN5n4YZ9m8LD+pujIy2Z+GMMYYwxhjDGGMMYUAkh8W+rANgSAkBH6JeInCCJuMOsdY6x1jrHWOsdY6xzofdlFcvZAJASAkBIBlayt6unVvTtM/DGGMMYYwxhjDGE/67QIXnA8DPwxhjDGGLvoDwYPZoUDTPwxhjDGGMMYYvBNvqy7T8MYYwxhjDGGGfZy6LQlZSAkBICQEgJAR+breK0h6C7T8MYYwxhjDGGMMMqdRpq61+WJASAkBIBlJ1MCv3rX5YkAuAAD+/rnFL/aR9f+u3fjFABAqpdYC71npA6AI6D9VjEf+p5Csi/y+viKmHolwiPQA5QZoSNL6xMGSTXdDPbc3V0eeu97nYP64lFmzi7N2+Xo2cSifkbsEoXbH5utH9Y1LDv7eerrvP+ttuB1Jg0gA8wzE1Uwrkuk3tp/JdU8DJzVRlkpjpX3LJF+IBNscBQjb3jQLhootYiZLYdEYMd/0M7iERjEFVtFO5gYdjyQj9A0nQmQByvmd5RSBD5Kd6L8D+feJtYX/8hZKVFyybY/AgUqL79KcPefvkSTPOCiw5u+RI+DiRo5UX4Rzuoc3fIko56pEHKi/COd1Dm75ElHPVJEyovwjoNBidn2/j6fNJ2pc6KvlqdXYEhdJz8yGdJwlFj1Six6pRY9UoseqUWPVKLHqlFj1Six6pSVx17QFdYEJQ4MHPtaUomcC7UcsAGMjlgDQRywBoI51VIvJIqq9eE9fgs8xre1lMCA6f+1Dzz55+/sP9fxLx9bUfj1iXbTGeEPzYwPalJJg6PsG6HPKjyDpIEfyvpMu/xuBSam/OZBPVzcPplnbPGj/87zmb/30bzGDP3lm+MNOgfMMpib5sr6x738uOK81WYTW6iN/tPJpU1ixPOdvXvJAJKqDh9E8sbCkoNd+VNH5sXZ51kjmP0ffFwRWmQGH5lfHwr5bfcagg1Whd2Cf6V2fxTUCTNQP9PGQ2X5fhaZ/q9zwi43Uc/JlTvhaaOfkyp3wtNHPyZU74Wmjn5Mqd8LTRz8mVO+Fpo5+TKnfC00c9oWF2huhwHLpWRL2yYKklhQLeNnmDqGb68PPnjQu93jTVq+ho8ucqF34MDsfXbMa7E66Vgepfxi1cXuLie3CGys5FdVgRBdeM7+F8Z+9haS/MHNDgup+tafQ7AFw88/lK3f0dIaFI4WZXB6fcDajJ7YH/17H/8AX4Kl8XccqHIN4C0vlL4IxnW+cvvWAoQfs4Fg2wykz/kEhT/GcoZ6cx81LfMbJ0DPAw8TU/83UYqOWAAKR/oAD6RywBkTfBUqfFl7jcPft19WACuWE0bBA3rgAAAAH/yY///vWgAHf8enceoAN/49NP488AAq7aH8emj/+UCABBfj00fjzwAC/+PTT+PPAAGf8emn8eeAAMP49NH9nDABNfj08fjzwADg+PPAAAA==') center/contain no-repeat;
+    filter:drop-shadow(0 0 12px rgba(182,255,0,.4))}
+  .logo.lg{width:48px;height:48px}
   .wordmark{font-family:var(--display);font-size:21px;font-weight:700;letter-spacing:-.02em}
   .wordmark b{color:var(--lime)}
   .tag{font-family:var(--display);font-size:11px;letter-spacing:.32em;color:var(--mut);text-transform:uppercase;
@@ -175,7 +173,7 @@
   <!-- ONBOARDING -->
   <div id="onboard">
     <div class="ob-card">
-      <div class="brand"><span class="mark"><i></i></span><span class="wordmark display">re<b>m</b>ix</span></div>
+      <div class="brand"><span class="logo lg"></span><span class="wordmark display" style="font-size:26px">remix</span></div>
       <h1 class="display">Creator Analytics</h1>
       <p>Paste your Remix API key to load your games' stats.</p>
       <div class="field">
@@ -199,8 +197,8 @@
   <!-- APP -->
   <div id="app">
     <header>
-      <div class="brand"><span class="mark"><i></i></span>
-        <span class="wordmark display">re<b>m</b>ix</span>
+      <div class="brand"><span class="logo"></span>
+        <span class="wordmark display">remix</span>
         <span class="tag">Analytics</span>
       </div>
       <span class="meta" id="asof"></span>
