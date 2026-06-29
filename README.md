@@ -4,7 +4,9 @@ A self-hosted, Remix-branded analytics dashboard for [Remix](https://remix.gg)
 game creators. **Bring your own API key**, run one command, and see every live
 game's scores, players, leaderboards, activity and trends in one panel.
 
-Zero dependencies — just Node 18+. Your API key never leaves your machine.
+Zero dependencies — just Node 22+ (uses the built-in `node:sqlite`). Your API
+key never leaves your machine, and your score data is cached in a local,
+git-ignored SQLite DB so refreshes are **incremental** (only new scores).
 
 ```bash
 git clone <this-repo> && cd remix-creator-analytics
@@ -22,6 +24,13 @@ node server.mjs
   activity, top-20 leaderboard with avatars, and the most recent plays.
 - **First play** — the earliest recorded-score date (the API exposes no
   `publishedAt` / launch date), with the game record's `createdAt` in the tooltip.
+- **Most active players** — a leaderboard of who *plays* the most (recorded
+  plays, not score), both across all your games and per-game in the drill-down.
+  Click any player to open their card: every game they've played, with their
+  play count, best-score rank (e.g. `#5 / 4082`) and best score in each.
+- **Incremental sync** — every score is cached in a local SQLite DB
+  (`analytics.db`, git-ignored). The first run backfills full history (~1 min);
+  every refresh after that only pulls scores newer than the last sync (seconds).
 - **Two modes** — a live auto-refreshing server, or a static self-contained
   `snapshot.html` you can share (no key inside).
 
@@ -74,8 +83,10 @@ Built on the Remix creator API (`https://remix.gg/api/v1`, bearer auth):
 | Endpoint | Used for |
 |----------|----------|
 | `GET /games` | your games + `createdAt` |
-| `GET /games/:id/leaderboard` | top players (best score per user) |
 | `GET /games/:id/scores` | full score feed — paginated via `next_cursor`, `limit` up to 500 |
+
+Leaderboards, ranks and per-player stats are all derived locally from the stored
+score feed — so the only endpoints called are `/games` and `/games/:id/scores`.
 
 > **"Plays" here = recorded scores, not every play.** The API only exposes
 > score submissions (leaderboard entries). Games played without reaching
@@ -86,7 +97,8 @@ Built on the Remix creator API (`https://remix.gg/api/v1`, bearer auth):
 ## Files
 | File | Role |
 |------|------|
-| `lib.mjs` | API client + aggregation (shared) |
+| `db.mjs` | local SQLite store (`node:sqlite`) — raw scores + aggregation queries |
+| `lib.mjs` | API client + incremental sync into the DB |
 | `server.mjs` | live server + onboarding (`/`, `/api/status`, `/api/key`, `/api/data`, `/api/refresh`) |
 | `build-snapshot.mjs` | fetch → bake `snapshot.html` |
 | `dashboard.html` | UI (Remix-branded; data source: `/api/data` live, or inlined for snapshot) |

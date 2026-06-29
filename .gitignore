@@ -6,6 +6,12 @@
 data.json
 snapshot.html
 
+# Local score database (raw player data — each creator builds their own)
+analytics.db
+analytics.db-journal
+analytics.db-wal
+analytics.db-shm
+
 # Local screenshots / scratch (may contain private game data)
 SS/
 

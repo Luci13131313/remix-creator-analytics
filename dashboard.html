@@ -131,6 +131,29 @@
   .tg .fill{height:100%;background:linear-gradient(90deg,#7aad00,var(--lime));border-radius:6px}
   .tg .val{width:48px;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums;flex:none}
 
+  .pl{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px 26px}
+  @media(max-width:760px){.pl{grid-template-columns:1fr}}
+  .pl li{display:flex;align-items:center;gap:9px;font-size:12.5px;min-width:0}
+  .pl .rank{width:22px;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums;flex:none}
+  .pl img{width:24px;height:24px;border-radius:50%;object-fit:cover;background:#222;flex:none}
+  .pl .nm{width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
+  .pl .track{flex:1;min-width:24px;height:9px;background:#04060d;border-radius:6px;overflow:hidden}
+  .pl .fill{height:100%;background:linear-gradient(90deg,#7aad00,var(--lime));border-radius:6px}
+  .pl .val{width:50px;text-align:right;font-variant-numeric:tabular-nums;flex:none}
+  .pl .gm{width:54px;text-align:right;color:var(--mut);font-size:11px;flex:none}
+  .pl li{cursor:pointer;border-radius:7px;padding:2px 4px;margin:-2px -4px;transition:background .12s}
+  .pl li:hover{background:#0c1426}
+  .pl li:hover .nm{color:var(--lime)}
+
+  .pg{list-style:none;margin:0;padding:0}
+  .pg li{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .pg img{width:24px;height:24px;border-radius:6px;object-fit:cover;background:#222;flex:none}
+  .pg .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pg .rk{width:78px;text-align:right;color:var(--lime);font-weight:600;font-variant-numeric:tabular-nums;flex:none}
+  .pg .pc{width:62px;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums;flex:none}
+  .pg .sc{width:80px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;flex:none}
+  .pg .hd{color:var(--mut);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;border:none;padding-bottom:3px}
+
   canvas{display:block;width:100%}
 
   table{width:100%;border-collapse:collapse;background:linear-gradient(180deg,var(--panel2),var(--panel));
@@ -238,6 +261,11 @@
         <h3>Players vs plays <span>· top 8</span></h3>
         <canvas id="pvs" height="120"></canvas>
       </div>
+    </div>
+
+    <div class="panel" id="playersPanel">
+      <h3>Most active players <span>· by recorded plays · all games</span></h3>
+      <ul class="pl" id="players"></ul>
     </div>
 
     <table id="tbl">
@@ -388,9 +416,41 @@ function renderCharts(){
   if(DATA.hourAll) barsHour($("hour"),DATA.hourAll);
   pvsChart($("pvs"),DATA.games);
 }
+function renderPlayers(){
+  const ps=DATA.topPlayers||[];
+  const panel=$("playersPanel");
+  if(!ps.length){ panel.style.display="none"; return; }
+  panel.style.display="";
+  const max=Math.max(1,...ps.map(p=>p.plays));
+  $("players").innerHTML=ps.slice(0,20).map((p,i)=>`<li onclick="openPlayer(${i})" title="click for ${esc(p.username||"anon")}'s breakdown"><span class="rank">${p.rank}</span>`
+    +`<img loading="lazy" src="${p.pfp||""}" onerror="this.style.visibility='hidden'"/>`
+    +`<span class="nm">${esc(p.username||"anon")}</span>`
+    +`<span class="track"><span class="fill" style="width:${(p.plays/max*100).toFixed(1)}%"></span></span>`
+    +`<span class="val">${num(p.plays)}</span>`
+    +`<span class="gm" title="distinct games played">${p.games} ${p.games===1?"game":"games"}</span></li>`).join("");
+}
+function openPlayer(i){
+  const p=(DATA.topPlayers||[])[i]; if(!p) return;
+  const bd=p.breakdown||[];
+  const rows=bd.length?bd.map(b=>`<li><img loading="lazy" src="${b.icon||""}" onerror="this.style.visibility='hidden'"/>`
+      +`<span class="nm" title="${esc(b.name)}">${esc(b.name)}</span>`
+      +`<span class="rk" title="best-score rank in this game">${b.rank?("#"+b.rank+(b.outOf?` / ${num(b.outOf)}`:"")):"—"}</span>`
+      +`<span class="pc">${num(b.plays)}×</span>`
+      +`<span class="sc" title="best score">${num(b.best)}</span></li>`).join("")
+    :'<li class="mut">no games</li>';
+  $("modal").innerHTML=`<span class="x" onclick="closeModal()">×</span>`
+    +`<h2 class="display"><img style="border-radius:50%" src="${p.pfp||""}" onerror="this.style.visibility='hidden'"/>${esc(p.username||"anon")}</h2>`
+    +`<div class="meta">global activity rank #${p.rank} · last seen ${ago(p.last)} ago</div>`
+    +`<div class="mstats">`+card("Total plays",num(p.plays))+card("Games played",num(p.games))
+    +card("Best of best",num(Math.max(0,...bd.map(b=>b.best))))+`</div>`
+    +`<div class="sect" style="margin-top:14px"><h4>Games — plays, rank &amp; best score</h4>`
+    +`<ul class="pg"><li class="hd"><span style="width:24px;flex:none"></span><span class="nm">Game</span>`
+    +`<span class="rk">Rank</span><span class="pc">Plays</span><span class="sc">Best</span></li>${rows}</ul></div>`;
+  $("ov").classList.add("on");
+}
 function renderAll(){
   $("asof").textContent="as of "+new Date(DATA.generatedAt).toLocaleString()+(DATA.full?" · full counts":" · fast");
-  renderCards(); renderTopGames(); renderRows(); renderCharts();
+  renderCards(); renderTopGames(); renderPlayers(); renderRows(); renderCharts();
   $("foot").textContent=`${DATA.totalGames} games · ${num(DATA.totalPlays)}${DATA.anyCapped?"+":""} recorded plays · ${num(DATA.globalUnique)} unique players`;
 }
 
@@ -405,6 +465,10 @@ function openModal(g){
       +`<span class="nm">${esc(r.username||"anon")}</span><span class="sc">${num(r.score)}</span>`
       +`<span class="ago">${ago(r.at)}</span></li>`).join("")
     :'<li class="mut">no recent plays</li>';
+  const mp=g.topPlayers?.length?g.topPlayers.slice(0,20).map(r=>`<li><span class="rank">${r.rank}</span>`
+      +`<img loading="lazy" src="${r.pfp||""}" onerror="this.style.visibility='hidden'"/>`
+      +`<span class="nm">${esc(r.username||"anon")}</span><span class="sc">${num(r.plays)} plays</span></li>`).join("")
+    :'<li class="mut">no data</li>';
   $("modal").innerHTML=`<span class="x" onclick="closeModal()">×</span>`
     +`<h2 class="display"><img src="${g.icon||""}" onerror="this.style.visibility='hidden'"/>${esc(g.name)}</h2>`
     +`<div class="meta">first play ${g.firstPlay?g.firstPlay.slice(0,10):"—"}`
@@ -415,8 +479,9 @@ function openModal(g){
     +`<div class="cols"><div class="sect"><h4>Plays — last 30 days</h4><canvas id="mDaily" height="100"></canvas></div>`
     +`<div class="sect"><h4>Score distribution</h4><canvas id="mHist" height="100"></canvas></div></div>`
     +`<div class="sect" style="margin-top:14px"><h4>Activity by hour (UTC)</h4><canvas id="mHour" height="100"></canvas></div>`
-    +`<div class="cols"><div class="sect"><h4>Top players</h4><ul class="lb">${lb}</ul></div>`
-    +`<div class="sect"><h4>Recent plays</h4><ul class="feed">${feed}</ul></div></div>`;
+    +`<div class="cols"><div class="sect"><h4>Top players <span style="font-weight:400;color:var(--mut);font-size:11px">· by score</span></h4><ul class="lb">${lb}</ul></div>`
+    +`<div class="sect"><h4>Most active <span style="font-weight:400;color:var(--mut);font-size:11px">· by plays</span></h4><ul class="lb">${mp}</ul></div></div>`
+    +`<div class="sect" style="margin-top:14px"><h4>Recent plays</h4><ul class="feed">${feed}</ul></div>`;
   $("ov").classList.add("on");
   requestAnimationFrame(()=>{ areaChart($("mDaily"),g.daily,30,100);
     if(g.scoreHist) histChart($("mHist"),g.scoreHist); if(g.hourHist) barsHour($("mHour"),g.hourHist); });

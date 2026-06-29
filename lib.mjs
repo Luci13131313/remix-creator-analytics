@@ -1,11 +1,15 @@
 // Remix creator analytics — data layer.
-// Pulls every live game's score feed + leaderboard from the Remix v1 API and
-// aggregates it into a single compact object the dashboard/snapshot render from.
+// Syncs every live game's score feed from the Remix v1 API into a local SQLite
+// DB (incrementally — only scores newer than the last sync), then aggregates
+// from the DB into the object the dashboard/snapshot render from.
 // The API key stays here (server-side only) and is NEVER written into output HTML.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import {
+  upsertGame, getSyncState, setSyncState, insertScores, aggregate,
+} from "./db.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASE = "https://remix.gg/api/v1";
@@ -60,95 +64,67 @@ async function api(path, key) {
   return res.json();
 }
 
-function dayKey(iso) {
-  return iso.slice(0, 10); // YYYY-MM-DD
-}
-
-// Walk the full /scores feed for one game, accumulating metrics without
-// retaining every raw row. `globalUsers` is a shared Set for cross-game unique.
-async function fetchGameDetail(game, key, { maxPages = Infinity, globalUsers }) {
+// Incrementally sync one game's score feed into the DB.
+// The feed is ordered newest-first, so we walk pages from the top and stop as
+// soon as we cross into rows we already have (achieved_at < last synced). The
+// first run for a game (no prior state) walks to the very end = full backfill.
+// `maxPages` caps the *first backfill* in --fast mode; capped runs leave
+// fully_synced=0 so the UI shows a "+" until a full sync completes.
+async function syncGame(game, key, { maxPages = Infinity }) {
   const gid = game.id;
-  const users = new Set();
-  const daily = Object.create(null);
-  const hourHist = new Array(24).fill(0); // scores by UTC hour-of-day
-  const scoreHist = new Array(20).fill(0); // log10 half-decade buckets (10^0..10^10)
-  const recent = []; // most-recent-by-date, capped at 20
-  let plays = 0;
-  let top = null; // { score, username, pfp }
-  let firstPlay = null;
-  let lastPlay = null;
+  // Store/refresh the game record (map API's appImageUrl -> icon).
+  upsertGame({
+    id: gid,
+    name: game.name,
+    icon: game.appImageUrl || null,
+    createdAt: game.createdAt || null,
+    liveVersionId: game.liveVersionId || null,
+  });
+
+  const { lastSyncedAt, fullySynced } = getSyncState(gid);
   let cursor = null;
   let pages = 0;
-  let capped = false;
+  let reachedKnown = false;
+  let drainedFeed = false;
+  let newMax = lastSyncedAt; // highest achieved_at we end up with
+  let added = 0;
 
   for (;;) {
     let p = `/games/${gid}/scores?limit=${PAGE}`;
     if (cursor) p += "&cursor=" + cursor;
     const d = await api(p, key);
+
+    const batch = [];
     for (const s of d.scores) {
-      plays++;
-      const u = s.user || {};
-      const uid = u.id || u.username || "?";
-      users.add(uid);
-      if (globalUsers) globalUsers.add(uid);
       const at = s.achieved_at;
-      const day = dayKey(at);
-      daily[day] = (daily[day] || 0) + 1;
-      hourHist[new Date(at).getUTCHours()]++;
-      const sb = Math.floor(Math.log10((s.score > 0 ? s.score : 0) + 1) * 2);
-      scoreHist[sb < 0 ? 0 : sb > 19 ? 19 : sb]++;
-      if (top === null || s.score > top.score)
-        top = { score: s.score, username: u.username, pfp: u.pfp };
-      if (firstPlay === null || at < firstPlay) firstPlay = at;
-      if (lastPlay === null || at > lastPlay) lastPlay = at;
-      // keep the 20 most recent plays by timestamp
-      if (recent.length < 20 || at > recent[recent.length - 1].at) {
-        recent.push({ at, score: s.score, username: u.username, pfp: u.pfp });
-        recent.sort((a, b) => (a.at < b.at ? 1 : -1));
-        if (recent.length > 20) recent.length = 20;
-      }
+      // Descending order: once we drop below the last synced timestamp,
+      // everything beyond is already stored — flag and stop after this page.
+      if (lastSyncedAt && at < lastSyncedAt) { reachedKnown = true; continue; }
+      const u = s.user || {};
+      batch.push({
+        game_id: gid,
+        user_id: u.id || u.username || "?",
+        username: u.username ?? null,
+        pfp: u.pfp ?? null,
+        score: s.score ?? 0,
+        achieved_at: at,
+      });
+      if (!newMax || at > newMax) newMax = at;
     }
+    added += insertScores(batch);
+
     cursor = d.next_cursor;
     pages++;
-    if (!cursor) break;
-    if (pages >= maxPages) {
-      capped = true;
-      break;
-    }
+    if (reachedKnown) break;        // caught up to known territory
+    if (!cursor) { drainedFeed = true; break; } // hit the end of the feed
+    if (pages >= maxPages) break;   // fast-mode cap on first backfill
   }
 
-  let leaderboard = [];
-  try {
-    const lb = await api(`/games/${gid}/leaderboard`, key);
-    leaderboard = (lb.leaderboard || []).map((r) => ({
-      rank: r.rank,
-      score: r.score,
-      username: r.user?.username,
-      pfp: r.user?.pfp,
-    }));
-  } catch {
-    /* leaderboard is best-effort */
-  }
-
-  return {
-    id: gid,
-    name: game.name,
-    icon: game.appImageUrl || null,
-    liveVersionId: game.liveVersionId || null,
-    createdAt: game.createdAt || null, // game record creation (≈ early/draft date)
-    plays, // NOTE: this is score submissions (LB entries), not raw plays — true plays are higher
-    capped,
-    unique: users.size,
-    topScore: top ? top.score : 0,
-    topUser: top ? top.username : null,
-    firstPlay,
-    lastPlay,
-    daily,
-    hourHist,
-    scoreHist,
-    leaderboard,
-    recent,
-  };
+  // fully_synced becomes true once we've ever walked the whole feed, OR if this
+  // was an incremental run that caught up to already-complete data.
+  const nowFull = fullySynced || drainedFeed || (reachedKnown && !!lastSyncedAt);
+  setSyncState(gid, newMax || lastSyncedAt, nowFull);
+  return { gid, added, fullySynced: nowFull };
 }
 
 // Validate a key by hitting /games. Returns { ok, count } or { ok:false, error }.
@@ -175,44 +151,31 @@ async function pool(items, size, worker) {
   return out;
 }
 
-// Pull and aggregate everything. opts.full=true removes the page cap (true totals).
-export async function fetchAll(opts = {}) {
+// Incrementally sync all live games into the DB. opts.full=true (default)
+// removes the page cap so the first backfill captures full history.
+export async function sync(opts = {}) {
   const { full = true, concurrency = 5, onProgress } = opts;
   const key = opts.key || readKey();
   const { games } = await api("/games", key);
   const maxPages = full ? Infinity : 60;
-  const globalUsers = new Set();
   let done = 0;
+  let addedTotal = 0;
 
-  const detail = await pool(games, concurrency, async (g) => {
-    const d = await fetchGameDetail(g, key, { maxPages, globalUsers });
+  await pool(games, concurrency, async (g) => {
+    const r = await syncGame(g, key, { maxPages });
+    addedTotal += r.added;
     done++;
-    if (onProgress) onProgress(done, games.length, d);
-    return d;
+    if (onProgress) onProgress(done, games.length, r);
   });
 
-  detail.sort((a, b) => b.plays - a.plays);
+  return { games: games.length, added: addedTotal };
+}
 
-  // Cross-game daily totals + hour-of-day histogram for the overview charts.
-  const dailyAll = Object.create(null);
-  const hourAll = new Array(24).fill(0);
-  for (const g of detail) {
-    for (const [day, n] of Object.entries(g.daily)) dailyAll[day] = (dailyAll[day] || 0) + n;
-    for (let h = 0; h < 24; h++) hourAll[h] += g.hourHist[h] || 0;
-  }
-
-  const totalPlays = detail.reduce((a, g) => a + g.plays, 0);
-  const anyCapped = detail.some((g) => g.capped);
-
-  return {
-    generatedAt: new Date().toISOString(),
-    full,
-    totalGames: detail.length,
-    totalPlays,
-    globalUnique: globalUsers.size,
-    anyCapped,
-    dailyAll,
-    hourAll,
-    games: detail,
-  };
+// Sync (network) then aggregate (from the DB) into the dashboard payload.
+// Kept named fetchAll so server.mjs / build-snapshot.mjs need no changes.
+export async function fetchAll(opts = {}) {
+  await sync(opts);
+  const data = aggregate({ generatedAt: new Date().toISOString() });
+  data.full = opts.full !== false;
+  return data;
 }

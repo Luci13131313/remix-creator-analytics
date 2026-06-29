@@ -11,8 +11,8 @@ const full = !process.argv.includes("--fast");
 console.log(`Fetching Remix analytics (${full ? "full counts" : "fast/capped"})…`);
 const data = await fetchAll({
   full,
-  onProgress: (done, total, g) =>
-    console.log(`  [${done}/${total}] ${g.name}: ${g.plays}${g.capped ? "+" : ""} plays, ${g.unique} players`),
+  onProgress: (done, total, r) =>
+    console.log(`  [${done}/${total}] synced (+${r.added} new${r.fullySynced ? "" : ", partial"})`),
 });
 
 const tpl = readFileSync(join(HERE, "dashboard.html"), "utf8");
