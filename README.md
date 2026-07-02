@@ -31,6 +31,10 @@ node server.mjs
 - **Incremental sync** — every score is cached in a local SQLite DB
   (`analytics.db`, git-ignored). The first run backfills full history (~1 min);
   every refresh after that only pulls scores newer than the last sync (seconds).
+  Player identity (name + avatar) is stored once per user, not on every score
+  row, to keep the file small. Run `npm run compact` anytime to VACUUM and
+  reclaim free space (older databases are also migrated to this leaner layout
+  automatically on first launch).
 - **Two modes** — a live auto-refreshing server, or a static self-contained
   `snapshot.html` you can share (no key inside).
 

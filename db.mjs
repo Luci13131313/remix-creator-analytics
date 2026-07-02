@@ -3,14 +3,21 @@
 // full backfill, each refresh only pulls scores newer than what we already have.
 // The DB is git-ignored and stays on your machine — same privacy stance as the
 // API key. Raw rows live here; the dashboard renders aggregates derived from them.
+//
+// Storage layout (schema v1): player identity (username + avatar URL) lives once
+// per user in `users`, NOT repeated on every score row. `scores` holds only the
+// keys + score + timestamp. This keeps the file small — an avatar URL stored 300k
+// times across score rows is the single biggest source of bloat otherwise.
 
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DB_FILE = join(HERE, "analytics.db");
+// Overridable so tooling/tests can point at a copy without touching the real DB.
+const DB_FILE = process.env.ANALYTICS_DB || join(HERE, "analytics.db");
 
+const SCHEMA_VERSION = 1;
 let db = null;
 
 export function openDb() {
@@ -27,20 +34,79 @@ export function openDb() {
       last_synced_at  TEXT,             -- max achieved_at we've stored for this game
       fully_synced    INTEGER DEFAULT 0 -- 1 once we've walked the whole feed to the end at least once
     );
+    -- Player identity, one row per user (deduped out of the score rows).
+    CREATE TABLE IF NOT EXISTS users (
+      user_id  TEXT PRIMARY KEY,
+      username TEXT,
+      pfp      TEXT
+    );
+    -- Fresh installs get the lean shape directly; older DBs are migrated below.
     CREATE TABLE IF NOT EXISTS scores (
       game_id     TEXT NOT NULL,
       user_id     TEXT NOT NULL,
-      username    TEXT,
-      pfp         TEXT,
       score       INTEGER,
       achieved_at TEXT NOT NULL,
       PRIMARY KEY (game_id, user_id, achieved_at)
     );
-    CREATE INDEX IF NOT EXISTS idx_scores_game ON scores(game_id);
+    -- Only index we actually need: per-user lookups across games (drill-downs).
+    -- WHERE/GROUP BY game_id is already served by the PRIMARY KEY's leading column,
+    -- so a separate game index would just waste space.
     CREATE INDEX IF NOT EXISTS idx_scores_user ON scores(user_id);
-    CREATE INDEX IF NOT EXISTS idx_scores_at   ON scores(achieved_at);
   `);
+  migrate(db);
   return db;
+}
+
+// Bring an older (v0) database up to the current schema. v0 stored username+pfp
+// on every score row and carried two redundant indexes (idx_scores_game,
+// idx_scores_at). We fold identity into `users`, drop the dead weight, and VACUUM
+// to reclaim the freed pages. Runs once (guarded by PRAGMA user_version).
+function migrate(d) {
+  const ver = d.prepare("PRAGMA user_version").get().user_version;
+  if (ver >= SCHEMA_VERSION) return;
+
+  const cols = d.prepare("PRAGMA table_info(scores)").all().map((c) => c.name);
+  const legacy = cols.includes("pfp") || cols.includes("username");
+
+  if (legacy) {
+    console.log("[db] migrating to v1 (deduping player identity, trimming indexes)… one-time, may take a moment for large DBs.");
+    d.prepare("BEGIN").run();
+    try {
+      // Backfill users from the score rows — take each user's most recent
+      // name/avatar (bare columns follow MAX(achieved_at) in SQLite).
+      d.exec(`
+        INSERT OR IGNORE INTO users (user_id, username, pfp)
+        SELECT user_id, username, pfp FROM (
+          SELECT user_id, username, pfp, MAX(achieved_at) FROM scores GROUP BY user_id
+        );
+      `);
+      d.exec("ALTER TABLE scores DROP COLUMN pfp;");
+      d.exec("ALTER TABLE scores DROP COLUMN username;");
+      d.prepare("COMMIT").run();
+    } catch (e) {
+      d.prepare("ROLLBACK").run();
+      throw e;
+    }
+  }
+
+  // Drop the redundant indexes (no-op if they were never there).
+  d.exec("DROP INDEX IF EXISTS idx_scores_game;");
+  d.exec("DROP INDEX IF EXISTS idx_scores_at;");
+  d.exec("CREATE INDEX IF NOT EXISTS idx_scores_user ON scores(user_id);");
+  d.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+
+  if (legacy) {
+    d.exec("VACUUM;"); // reclaim the space freed by the dropped columns/indexes
+    console.log("[db] migration complete — database compacted.");
+  }
+}
+
+// Reclaim free pages and truncate the WAL. Safe to run anytime; handy after big
+// syncs. Exposed for `npm run compact`.
+export function compact() {
+  const d = openDb();
+  d.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  d.exec("VACUUM;");
 }
 
 // Upsert a game record (preserve last_synced_at — it's owned by the sync loop).
@@ -74,21 +140,27 @@ export function setSyncState(gameId, iso, fullySynced) {
 
 // Bulk-insert score rows (OR IGNORE dedups on the composite key — safe to re-run
 // across the sync boundary where two rows can share an exact achieved_at).
-// Returns how many rows were actually new.
+// Player identity is upserted into `users` in the same transaction, keeping the
+// latest non-null name/avatar. Returns how many score rows were actually new.
 export function insertScores(rows) {
   if (!rows.length) return 0;
   const d = openDb();
-  const stmt = d.prepare(`
-    INSERT OR IGNORE INTO scores (game_id, user_id, username, pfp, score, achieved_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+  const sStmt = d.prepare(`
+    INSERT OR IGNORE INTO scores (game_id, user_id, score, achieved_at)
+    VALUES (?, ?, ?, ?)
+  `);
+  const uStmt = d.prepare(`
+    INSERT INTO users (user_id, username, pfp) VALUES (?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      username = COALESCE(excluded.username, users.username),
+      pfp      = COALESCE(excluded.pfp, users.pfp)
   `);
   let added = 0;
-  const tx = d.prepare("BEGIN");
-  tx.run();
+  d.prepare("BEGIN").run();
   try {
     for (const r of rows) {
-      const res = stmt.run(r.game_id, r.user_id, r.username ?? null, r.pfp ?? null, r.score ?? 0, r.achieved_at);
-      added += res.changes;
+      added += sStmt.run(r.game_id, r.user_id, r.score ?? 0, r.achieved_at).changes;
+      uStmt.run(r.user_id, r.username ?? null, r.pfp ?? null);
     }
     d.prepare("COMMIT").run();
   } catch (e) {
@@ -113,7 +185,7 @@ function scoreBucket(score) {
 }
 
 // Build the entire dashboard payload from stored rows — no network here.
-// Shape matches what dashboard.html / snapshot expect, plus topPlayers (new).
+// Shape matches what dashboard.html / snapshot expect, plus topPlayers + players.
 export function aggregate({ generatedAt }) {
   const d = openDb();
   const games = d.prepare("SELECT * FROM games").all();
@@ -132,8 +204,9 @@ export function aggregate({ generatedAt }) {
       .get(gid);
 
     const topRow = d
-      .prepare(`SELECT score, username FROM scores WHERE game_id = ?
-                ORDER BY score DESC LIMIT 1`)
+      .prepare(`SELECT s.score, u.username
+                FROM scores s LEFT JOIN users u ON u.user_id = s.user_id
+                WHERE s.game_id = ? ORDER BY s.score DESC LIMIT 1`)
       .get(gid);
 
     const daily = Object.create(null);
@@ -158,8 +231,9 @@ export function aggregate({ generatedAt }) {
 
     // Full best-score ranking for this game (every player), ordered desc.
     const ranked = d
-      .prepare(`SELECT user_id, username, pfp, MAX(score) score
-                FROM scores WHERE game_id = ? GROUP BY user_id
+      .prepare(`SELECT s.user_id, u.username, u.pfp, MAX(s.score) score
+                FROM scores s LEFT JOIN users u ON u.user_id = s.user_id
+                WHERE s.game_id = ? GROUP BY s.user_id
                 ORDER BY score DESC`)
       .all(gid);
     const ranks = new Map();
@@ -171,15 +245,17 @@ export function aggregate({ generatedAt }) {
       .map((r, i) => ({ rank: i + 1, score: r.score, username: r.username, pfp: r.pfp, uid: r.user_id }));
 
     const recent = d
-      .prepare(`SELECT user_id, username, pfp, score, achieved_at at
-                FROM scores WHERE game_id = ? ORDER BY achieved_at DESC LIMIT 20`)
+      .prepare(`SELECT s.user_id, u.username, u.pfp, s.score, s.achieved_at at
+                FROM scores s LEFT JOIN users u ON u.user_id = s.user_id
+                WHERE s.game_id = ? ORDER BY s.achieved_at DESC LIMIT 20`)
       .all(gid)
       .map((r) => ({ at: r.at, score: r.score, username: r.username, pfp: r.pfp, uid: r.user_id }));
 
     // Per-game most-active players (by recorded plays, not by score).
     const topPlayers = d
-      .prepare(`SELECT user_id, username, pfp, COUNT(*) plays, MAX(achieved_at) last
-                FROM scores WHERE game_id = ? GROUP BY user_id
+      .prepare(`SELECT s.user_id, u.username, u.pfp, COUNT(*) plays, MAX(s.achieved_at) last
+                FROM scores s LEFT JOIN users u ON u.user_id = s.user_id
+                WHERE s.game_id = ? GROUP BY s.user_id
                 ORDER BY plays DESC, last DESC LIMIT 20`)
       .all(gid)
       .map((r, i) => ({
@@ -229,9 +305,9 @@ export function aggregate({ generatedAt }) {
   const globalUnique = d.prepare("SELECT COUNT(DISTINCT user_id) n FROM scores").get().n;
 
   // Reusable per-player builders, shared by the global most-active list and by
-  // the per-player drill-down cards baked into `players`.
-  const idNameStmt = d.prepare(`SELECT username, pfp FROM scores
-                                WHERE user_id = ? ORDER BY achieved_at DESC LIMIT 1`);
+  // the per-player drill-down cards baked into `players`. Identity is now a
+  // direct PRIMARY KEY lookup on `users` (was a scan of `scores`).
+  const idNameStmt = d.prepare(`SELECT username, pfp FROM users WHERE user_id = ?`);
   const summaryStmt = d.prepare(`SELECT COUNT(*) plays, COUNT(DISTINCT game_id) games, MAX(achieved_at) last
                                  FROM scores WHERE user_id = ?`);
   // Per-player, per-game breakdown (plays + best score + standing) for the popup.
@@ -264,8 +340,8 @@ export function aggregate({ generatedAt }) {
   };
 
   // Global most-active players: total plays + how many distinct games they touched.
-  // Name/avatar taken from each user's most recent play. Lightweight rows — the
-  // full card (breakdown) lives in `players` below, keyed by uid.
+  // Name/avatar from the users table. Lightweight rows — the full card (breakdown)
+  // lives in `players` below, keyed by uid.
   const topAgg = d
     .prepare(`SELECT user_id, COUNT(*) plays, COUNT(DISTINCT game_id) games, MAX(achieved_at) last
               FROM scores GROUP BY user_id ORDER BY plays DESC, last DESC LIMIT 50`)

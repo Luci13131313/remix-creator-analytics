@@ -10,7 +10,8 @@
     "start": "node server.mjs",
     "fast": "node server.mjs --fast",
     "snapshot": "node build-snapshot.mjs",
-    "snapshot:fast": "node build-snapshot.mjs --fast"
+    "snapshot:fast": "node build-snapshot.mjs --fast",
+    "compact": "node compact.mjs"
   },
   "keywords": ["remix", "remix.gg", "analytics", "dashboard", "game-creator", "leaderboard"],
   "license": "MIT",
