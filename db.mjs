@@ -168,13 +168,13 @@ export function aggregate({ generatedAt }) {
 
     const leaderboard = ranked
       .slice(0, 20)
-      .map((r, i) => ({ rank: i + 1, score: r.score, username: r.username, pfp: r.pfp }));
+      .map((r, i) => ({ rank: i + 1, score: r.score, username: r.username, pfp: r.pfp, uid: r.user_id }));
 
     const recent = d
-      .prepare(`SELECT username, pfp, score, achieved_at at
+      .prepare(`SELECT user_id, username, pfp, score, achieved_at at
                 FROM scores WHERE game_id = ? ORDER BY achieved_at DESC LIMIT 20`)
       .all(gid)
-      .map((r) => ({ at: r.at, score: r.score, username: r.username, pfp: r.pfp }));
+      .map((r) => ({ at: r.at, score: r.score, username: r.username, pfp: r.pfp, uid: r.user_id }));
 
     // Per-game most-active players (by recorded plays, not by score).
     const topPlayers = d
@@ -184,7 +184,7 @@ export function aggregate({ generatedAt }) {
       .all(gid)
       .map((r, i) => ({
         rank: i + 1, plays: r.plays, last: r.last,
-        username: r.username, pfp: r.pfp,
+        username: r.username, pfp: r.pfp, uid: r.user_id,
       }));
 
     return {
@@ -228,23 +228,20 @@ export function aggregate({ generatedAt }) {
   const totalPlays = d.prepare("SELECT COUNT(*) n FROM scores").get().n;
   const globalUnique = d.prepare("SELECT COUNT(DISTINCT user_id) n FROM scores").get().n;
 
-  // Global most-active players: total plays + how many distinct games they touched.
-  // Name/avatar taken from each user's most recent play.
-  const topAgg = d
-    .prepare(`SELECT user_id, COUNT(*) plays, COUNT(DISTINCT game_id) games, MAX(achieved_at) last
-              FROM scores GROUP BY user_id ORDER BY plays DESC, last DESC LIMIT 50`)
-    .all();
+  // Reusable per-player builders, shared by the global most-active list and by
+  // the per-player drill-down cards baked into `players`.
   const idNameStmt = d.prepare(`SELECT username, pfp FROM scores
                                 WHERE user_id = ? ORDER BY achieved_at DESC LIMIT 1`);
-  // Per-player, per-game breakdown (plays + best score) for the drill-down popup.
+  const summaryStmt = d.prepare(`SELECT COUNT(*) plays, COUNT(DISTINCT game_id) games, MAX(achieved_at) last
+                                 FROM scores WHERE user_id = ?`);
+  // Per-player, per-game breakdown (plays + best score + standing) for the popup.
   const perGameStmt = d.prepare(`SELECT game_id, COUNT(*) plays, MAX(score) best, MAX(achieved_at) last
                                  FROM scores WHERE user_id = ? GROUP BY game_id
                                  ORDER BY plays DESC, best DESC`);
-  const globalTopPlayers = topAgg.map((r, i) => {
-    const id = idNameStmt.get(r.user_id) || {};
-    const breakdown = perGameStmt.all(r.user_id).map((b) => {
+  const buildBreakdown = (userId) =>
+    perGameStmt.all(userId).map((b) => {
       const gr = gameRank[b.game_id];
-      const standing = gr && gr.ranks.get(r.user_id);
+      const standing = gr && gr.ranks.get(userId);
       return {
         name: gr ? gr.name : b.game_id,
         icon: gr ? gr.icon : null,
@@ -255,11 +252,45 @@ export function aggregate({ generatedAt }) {
         last: b.last,
       };
     });
+  // Full drill-down card for one player. `rank` = global most-active rank if known.
+  const buildPlayer = (userId, rank = null) => {
+    const id = idNameStmt.get(userId) || {};
+    const s = summaryStmt.get(userId) || { plays: 0, games: 0, last: null };
     return {
-      rank: i + 1, plays: r.plays, games: r.games, last: r.last,
-      username: id.username, pfp: id.pfp, breakdown,
+      uid: userId, username: id.username, pfp: id.pfp,
+      plays: s.plays, games: s.games, last: s.last, rank,
+      breakdown: buildBreakdown(userId),
+    };
+  };
+
+  // Global most-active players: total plays + how many distinct games they touched.
+  // Name/avatar taken from each user's most recent play. Lightweight rows — the
+  // full card (breakdown) lives in `players` below, keyed by uid.
+  const topAgg = d
+    .prepare(`SELECT user_id, COUNT(*) plays, COUNT(DISTINCT game_id) games, MAX(achieved_at) last
+              FROM scores GROUP BY user_id ORDER BY plays DESC, last DESC LIMIT 50`)
+    .all();
+  const globalTopPlayers = topAgg.map((r, i) => {
+    const id = idNameStmt.get(r.user_id) || {};
+    return {
+      rank: i + 1, uid: r.user_id, plays: r.plays, games: r.games, last: r.last,
+      username: id.username, pfp: id.pfp,
     };
   });
+
+  // Bake a uid -> full-card map for EVERY player shown in any rendered list
+  // (global most-active + each game's leaderboard / most-active / recent), so
+  // clicking any name — in the game modal or the global list — opens their card
+  // with zero extra requests, in both live-server and static-snapshot modes.
+  const players = Object.create(null);
+  for (const p of globalTopPlayers) players[p.uid] = buildPlayer(p.uid, p.rank);
+  for (const g of detail) {
+    for (const list of [g.leaderboard, g.topPlayers, g.recent]) {
+      for (const r of list) {
+        if (r.uid != null && !players[r.uid]) players[r.uid] = buildPlayer(r.uid);
+      }
+    }
+  }
 
   return {
     generatedAt: generatedAt || null,
@@ -272,5 +303,6 @@ export function aggregate({ generatedAt }) {
     hourAll,
     games: detail,
     topPlayers: globalTopPlayers,
+    players,
   };
 }

@@ -193,6 +193,9 @@
   .lb .nm,.feed .nm{flex:1;overflow:hidden;text-overflow:ellipsis}
   .lb .sc,.feed .sc{font-variant-numeric:tabular-nums;font-weight:600}
   .feed .ago{color:var(--mut);font-size:11px}
+  .lb li[data-uid],.feed li[data-uid]{cursor:pointer;border-radius:7px;margin:0 -6px;padding-left:6px;padding-right:6px;transition:background .12s}
+  .lb li[data-uid]:hover,.feed li[data-uid]:hover{background:#0c1426}
+  .lb li[data-uid]:hover .nm,.feed li[data-uid]:hover .nm{color:var(--lime)}
   .x{float:right;cursor:pointer;color:var(--mut);font-size:22px;line-height:1;margin:-4px -4px 0 0}
   .x:hover{color:var(--lime)}
 </style>
@@ -297,6 +300,7 @@ const cf=new Intl.NumberFormat("en-US",{notation:"compact",maximumFractionDigits
 const num=n=>nf.format(n), comp=n=>cf.format(n);
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+const escA=s=>String(s??"").replace(/[<>&"']/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c]));
 
 function show(view){ for(const v of ["onboard","loading","app"]) $(v).style.display = v===view ? (v==="app"?"block":"flex") : "none"; }
 function refDate(){ return DATA ? new Date(DATA.generatedAt) : new Date(); }
@@ -422,15 +426,20 @@ function renderPlayers(){
   if(!ps.length){ panel.style.display="none"; return; }
   panel.style.display="";
   const max=Math.max(1,...ps.map(p=>p.plays));
-  $("players").innerHTML=ps.slice(0,20).map((p,i)=>`<li onclick="openPlayer(${i})" title="click for ${esc(p.username||"anon")}'s breakdown"><span class="rank">${p.rank}</span>`
+  $("players").innerHTML=ps.slice(0,20).map((p,i)=>`<li data-uid="${escA(p.uid)}" title="click for ${esc(p.username||"anon")}'s breakdown"><span class="rank">${p.rank}</span>`
     +`<img loading="lazy" src="${p.pfp||""}" onerror="this.style.visibility='hidden'"/>`
     +`<span class="nm">${esc(p.username||"anon")}</span>`
     +`<span class="track"><span class="fill" style="width:${(p.plays/max*100).toFixed(1)}%"></span></span>`
     +`<span class="val">${num(p.plays)}</span>`
     +`<span class="gm" title="distinct games played">${p.games} ${p.games===1?"game":"games"}</span></li>`).join("");
 }
-function openPlayer(i){
-  const p=(DATA.topPlayers||[])[i]; if(!p) return;
+// Resolve a player by user id (from the baked `players` map) and open their card.
+// Used by both the global most-active list and the names inside a game modal.
+function openPlayerById(uid){
+  const p=DATA.players&&DATA.players[uid];
+  if(p) renderPlayerCard(p);
+}
+function renderPlayerCard(p){
   const bd=p.breakdown||[];
   const rows=bd.length?bd.map(b=>`<li><img loading="lazy" src="${b.icon||""}" onerror="this.style.visibility='hidden'"/>`
       +`<span class="nm" title="${esc(b.name)}">${esc(b.name)}</span>`
@@ -438,9 +447,10 @@ function openPlayer(i){
       +`<span class="pc">${num(b.plays)}×</span>`
       +`<span class="sc" title="best score">${num(b.best)}</span></li>`).join("")
     :'<li class="mut">no games</li>';
+  const rankPart=p.rank?`global activity rank #${p.rank} · `:"";
   $("modal").innerHTML=`<span class="x" onclick="closeModal()">×</span>`
     +`<h2 class="display"><img style="border-radius:50%" src="${p.pfp||""}" onerror="this.style.visibility='hidden'"/>${esc(p.username||"anon")}</h2>`
-    +`<div class="meta">global activity rank #${p.rank} · last seen ${ago(p.last)} ago</div>`
+    +`<div class="meta">${rankPart}last seen ${ago(p.last)} ago</div>`
     +`<div class="mstats">`+card("Total plays",num(p.plays))+card("Games played",num(p.games))
     +card("Best of best",num(Math.max(0,...bd.map(b=>b.best))))+`</div>`
     +`<div class="sect" style="margin-top:14px"><h4>Games — plays, rank &amp; best score</h4>`
@@ -457,15 +467,16 @@ function renderAll(){
 /* ---------- modal ---------- */
 function card(k,v){ return `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
 function openModal(g){
-  const lb=g.leaderboard?.length?g.leaderboard.slice(0,20).map(r=>`<li><span class="rank">${r.rank}</span>`
+  const uidAttr=r=>r.uid!=null?` data-uid="${escA(r.uid)}"`:"";
+  const lb=g.leaderboard?.length?g.leaderboard.slice(0,20).map(r=>`<li${uidAttr(r)}><span class="rank">${r.rank}</span>`
       +`<img loading="lazy" src="${r.pfp||""}" onerror="this.style.visibility='hidden'"/>`
       +`<span class="nm">${esc(r.username||"anon")}</span><span class="sc">${num(r.score)}</span></li>`).join("")
     :'<li class="mut">no leaderboard</li>';
-  const feed=g.recent?.length?g.recent.map(r=>`<li><img loading="lazy" src="${r.pfp||""}" onerror="this.style.visibility='hidden'"/>`
+  const feed=g.recent?.length?g.recent.map(r=>`<li${uidAttr(r)}><img loading="lazy" src="${r.pfp||""}" onerror="this.style.visibility='hidden'"/>`
       +`<span class="nm">${esc(r.username||"anon")}</span><span class="sc">${num(r.score)}</span>`
       +`<span class="ago">${ago(r.at)}</span></li>`).join("")
     :'<li class="mut">no recent plays</li>';
-  const mp=g.topPlayers?.length?g.topPlayers.slice(0,20).map(r=>`<li><span class="rank">${r.rank}</span>`
+  const mp=g.topPlayers?.length?g.topPlayers.slice(0,20).map(r=>`<li${uidAttr(r)}><span class="rank">${r.rank}</span>`
       +`<img loading="lazy" src="${r.pfp||""}" onerror="this.style.visibility='hidden'"/>`
       +`<span class="nm">${esc(r.username||"anon")}</span><span class="sc">${num(r.plays)} plays</span></li>`).join("")
     :'<li class="mut">no data</li>';
@@ -493,6 +504,10 @@ document.querySelectorAll("th[data-k]").forEach(th=>{ th.onclick=()=>{ const k=t
   if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir=k==="name"?1:-1; }
   document.querySelectorAll("th[data-k]").forEach(t=>t.classList.remove("act")); th.classList.add("act"); renderRows(); }; });
 $("ov").onclick=e=>{ if(e.target.id==="ov") closeModal(); };
+// Click any player name (global list, or a leaderboard/most-active/recent row
+// inside a game modal) to open that player's drill-down card.
+$("players").addEventListener("click",e=>{ const li=e.target.closest("li[data-uid]"); if(li) openPlayerById(li.dataset.uid); });
+$("modal").addEventListener("click",e=>{ const li=e.target.closest("li[data-uid]"); if(li) openPlayerById(li.dataset.uid); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
 window.addEventListener("resize",()=>{ if(DATA && $("app").style.display!=="none") renderCharts(); });
 
