@@ -198,6 +198,36 @@
   .lb li[data-uid]:hover .nm,.feed li[data-uid]:hover .nm{color:var(--lime)}
   .x{float:right;cursor:pointer;color:var(--mut);font-size:22px;line-height:1;margin:-4px -4px 0 0}
   .x:hover{color:var(--lime)}
+
+  /* panel header row (title + control) */
+  .phead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .phead h3{margin:0}
+  /* segmented range control */
+  .seg{display:inline-flex;gap:2px;background:#04060d;border:1px solid var(--line);border-radius:9px;padding:2px}
+  .seg button{font-family:var(--body);background:none;border:none;color:var(--mut);font-size:11px;padding:4px 9px;border-radius:7px;cursor:pointer;letter-spacing:.03em}
+  .seg button:hover{color:var(--txt)}
+  .seg button.on{background:rgba(182,255,0,.14);color:var(--lime);font-weight:600}
+  /* small pill button (see more, etc) */
+  .chip{font-family:var(--body);background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-size:11px;padding:4px 11px;border-radius:8px;cursor:pointer;white-space:nowrap}
+  .chip:hover{border-color:var(--lime);color:var(--lime)}
+  /* peak / busiest callout under a chart */
+  .peak{color:var(--mut);font-size:11px;margin-top:9px}
+  .peak b{color:var(--txt);font-weight:600}
+  /* KPI delta badge on cards */
+  .delta{font-size:11px;font-weight:600;margin-left:6px;font-variant-numeric:tabular-nums;letter-spacing:0}
+  .delta.up{color:var(--lime)}
+  .delta.down{color:#ff6b6b}
+  /* table toolbar (search + export) */
+  .tools{display:flex;align-items:center;gap:10px;margin:6px 0 10px;flex-wrap:wrap}
+  .search{font-family:var(--body);background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    padding:8px 12px;border-radius:10px;font-size:13px;min-width:200px}
+  .search::placeholder{color:var(--mut)}
+  .search:focus{outline:none;border-color:var(--lime)}
+  /* floating chart tooltip */
+  .tip{position:fixed;z-index:20;display:none;pointer-events:none;background:#0b1120;border:1px solid var(--line);
+    border-radius:9px;padding:7px 10px;font-size:12px;box-shadow:0 8px 30px rgba(0,0,0,.6);white-space:nowrap}
+  .tip b{display:block;color:var(--white);font-weight:600;font-size:11px;margin-bottom:2px}
+  .tip .tval{color:var(--lime);font-weight:600;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -246,8 +276,10 @@
 
     <div class="grid2">
       <div class="panel">
-        <h3>Plays per day <span id="trendRange">· last 30 days · all games</span></h3>
+        <div class="phead"><h3>Plays per day <span id="trendRange">· last 30 days · all games</span></h3>
+          <div class="seg" id="rangeSeg"></div></div>
         <canvas id="trend" height="150"></canvas>
+        <div class="peak" id="trendPeak"></div>
       </div>
       <div class="panel">
         <h3>Top games <span>· by plays</span></h3>
@@ -259,6 +291,7 @@
       <div class="panel">
         <h3>Activity by hour <span>· UTC · all games</span></h3>
         <canvas id="hour" height="120"></canvas>
+        <div class="peak" id="hourPeak"></div>
       </div>
       <div class="panel">
         <h3>Players vs plays <span>· top 8</span></h3>
@@ -267,8 +300,15 @@
     </div>
 
     <div class="panel" id="playersPanel">
-      <h3>Most active players <span>· by recorded plays · all games</span></h3>
+      <div class="phead"><h3>Most active players <span>· by recorded plays · all games</span></h3>
+        <button class="chip" id="morePlayers" style="display:none"></button></div>
       <ul class="pl" id="players"></ul>
+    </div>
+
+    <div class="tools">
+      <input id="search" class="search" type="search" placeholder="Filter games by name…" autocomplete="off" />
+      <span class="spacer"></span>
+      <button class="ibtn" id="csvBtn">⬇ Export CSV</button>
     </div>
 
     <table id="tbl">
@@ -288,11 +328,17 @@
 </div>
 
 <div class="ov" id="ov"><div class="modal" id="modal"></div></div>
+<div class="tip" id="tip"></div>
 
 <script>
 window.__DATA__ = /*DATA_START*/null/*DATA_END*/;
 const SNAPSHOT = window.__DATA__ !== null;
 let DATA = null, sortKey="plays", sortDir=-1, pollTimer=null, autoTimer=null;
+// UI state for the interactive widgets added on top of the raw data.
+let trendRange="30";           // days shown in the "Plays per day" chart ("all" = full span)
+let playersShown=20;           // rows visible in the "Most active players" list
+let searchTerm="";             // games-table name filter
+const RANGES=[["7","7D"],["30","30D"],["90","90D"],["365","1Y"],["all","ALL"]];
 
 const LIME="#B6FF00", GRID="#1b2438", MUT="#7f8ca8";
 const nf=new Intl.NumberFormat("en-US");
@@ -311,34 +357,102 @@ function ago(iso){ if(!iso) return "—"; const s=(Date.now()-new Date(iso))/100
   if(s<86400)return Math.floor(s/3600)+"h"; if(s<2592000)return Math.floor(s/86400)+"d"; return Math.floor(s/2592000)+"mo"; }
 function lastDays(daily,n){ const ref=refDate(); let t=0; for(let i=0;i<n;i++){ const d=new Date(ref); d.setUTCDate(d.getUTCDate()-i); t+=daily[d.toISOString().slice(0,10)]||0; } return t; }
 function dayArray(daily,n){ const ref=refDate(); const out=[]; for(let i=n-1;i>=0;i--){ const d=new Date(ref); d.setUTCDate(d.getUTCDate()-i); out.push(daily[d.toISOString().slice(0,10)]||0); } return out; }
+function fmtDay(d){ return d.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"2-digit"}); }
+// Sum `len` days of plays ending `endAgo` days before the reference date.
+function sumWindow(daily,endAgo,len){ const ref=refDate(); let t=0; for(let i=0;i<len;i++){ const d=new Date(ref); d.setUTCDate(d.getUTCDate()-endAgo-i); t+=daily[d.toISOString().slice(0,10)]||0; } return t; }
+// Full span (in days) covered by the daily data, oldest record -> reference date.
+function spanDays(){ const keys=Object.keys(DATA.dailyAll); if(!keys.length) return 30;
+  const min=keys.reduce((a,b)=>a<b?a:b); const days=Math.round((refDate()-new Date(min+"T00:00:00Z"))/864e5)+1; return Math.max(1,days); }
+function rangeDays(){ return trendRange==="all" ? spanDays() : Number(trendRange); }
+// Build a chart series over the last `days`, auto-bucketing so bars stay readable:
+// day-by-day up to ~3 months, then weekly up to a year, then monthly beyond.
+function buildSeries(daily,days){
+  const end=refDate(), one=[];
+  for(let i=days-1;i>=0;i--){ const d=new Date(end); d.setUTCDate(d.getUTCDate()-i); const iso=d.toISOString().slice(0,10); one.push({d:new Date(d),iso,v:daily[iso]||0}); }
+  const unit = days<=92 ? "day" : days<=370 ? "week" : "month";
+  if(unit==="day") return { unit, vals:one.map(o=>o.v), labels:one.map(o=>fmtDay(o.d)) };
+  const groups=new Map();
+  for(const o of one){ let key,label;
+    if(unit==="week"){ const d=new Date(o.d); const wd=(d.getUTCDay()+6)%7; d.setUTCDate(d.getUTCDate()-wd); key=d.toISOString().slice(0,10); label="Week of "+fmtDay(d); }
+    else { key=o.iso.slice(0,7); label=o.d.toLocaleDateString(undefined,{month:"short",year:"numeric"}); }
+    const gp=groups.get(key)||{v:0,label}; gp.v+=o.v; groups.set(key,gp); }
+  const arr=[...groups.values()];
+  return { unit, vals:arr.map(g=>g.v), labels:arr.map(g=>g.label) };
+}
+// Busiest single day within the last `days`, and busiest UTC hour overall.
+function busiestDay(days){ const end=refDate(); let best=null;
+  for(let i=days-1;i>=0;i--){ const d=new Date(end); d.setUTCDate(d.getUTCDate()-i); const v=DATA.dailyAll[d.toISOString().slice(0,10)]||0; if(!best||v>best.v) best={d:new Date(d),v}; } return best; }
+function busiestHour(){ const h=DATA.hourAll||[]; let bi=0; for(let i=1;i<h.length;i++) if(h[i]>h[bi]) bi=i; return {i:bi,v:h[bi]||0}; }
+// A ▲/▼ percentage badge comparing a current value to a previous one.
+function deltaBadge(now,prev){ if(prev==null||prev===0) return ""; const pct=Math.round((now-prev)/prev*100); const up=pct>=0;
+  return ` <span class="delta ${up?"up":"down"}" title="vs previous period">${up?"▲":"▼"} ${Math.abs(pct)}%</span>`; }
+
+/* ---------- chart tooltip + hover wiring ---------- */
+function showTip(cx,cy,title,val){ const t=$("tip"); t.innerHTML=`<b>${esc(title)}</b><span class="tval">${esc(val)}</span>`;
+  t.style.display="block"; const pad=14, tw=t.offsetWidth, th=t.offsetHeight;
+  let x=cx+pad, y=cy+pad; if(x+tw>innerWidth-4) x=cx-tw-pad; if(y+th>innerHeight-4) y=cy-th-pad;
+  t.style.left=Math.max(4,x)+"px"; t.style.top=Math.max(4,y)+"px"; }
+function hideTip(){ $("tip").style.display="none"; }
+// Charts expose _draw(highlightIndex), _hit(mouseX)->index, _label(index)->{title,value}.
+// attachHover wires mousemove/leave once per canvas; the closures are re-read each render.
+function attachHover(canvas){
+  canvas.style.cursor="crosshair";
+  if(canvas._hoverWired) return; canvas._hoverWired=true;
+  canvas.addEventListener("mousemove",e=>{ const r=canvas.getBoundingClientRect();
+    const i=canvas._hit?canvas._hit(e.clientX-r.left,e.clientY-r.top):-1;
+    if(i<0){ hideTip(); canvas._draw&&canvas._draw(-1); return; }
+    canvas._draw(i); const lab=canvas._label(i); showTip(e.clientX,e.clientY,lab.title,lab.value); });
+  canvas.addEventListener("mouseleave",()=>{ hideTip(); canvas._draw&&canvas._draw(-1); });
+}
 
 /* ---------- canvas helpers (HiDPI) ---------- */
 function ctx2d(canvas,h){ const w=canvas.clientWidth||600; const dpr=Math.min(2,window.devicePixelRatio||1);
   canvas.width=w*dpr; canvas.height=h*dpr; canvas.style.height=h+"px";
   const g=canvas.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h); return {g,w,h}; }
 
-function areaChart(canvas,daily,n,height){
-  const H=height||150; const {g,w}=ctx2d(canvas,H);
-  const arr=dayArray(daily,n); const max=Math.max(1,...arr);
-  const pad=18, bw=w/(n-1||1);
-  g.strokeStyle=GRID; g.lineWidth=1;
-  for(let i=0;i<=3;i++){ const y=pad+(H-pad*1.4)*i/3; g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
-  const pts=arr.map((v,i)=>[i*bw, pad+(H-pad*1.4)*(1-v/max)]);
-  const grad=g.createLinearGradient(0,0,0,H); grad.addColorStop(0,"rgba(182,255,0,.32)"); grad.addColorStop(1,"rgba(182,255,0,0)");
-  g.beginPath(); g.moveTo(0,H-pad*.4);
-  pts.forEach(p=>g.lineTo(p[0],p[1])); g.lineTo(w,H-pad*.4); g.closePath(); g.fillStyle=grad; g.fill();
-  g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.strokeStyle=LIME; g.lineWidth=2; g.stroke();
-  g.fillStyle=MUT; g.font="10px Outfit,sans-serif"; g.fillText(num(max)+"/day peak",2,11);
+// series = {vals:number[], labels:string[], unit:"day"|"week"|"month"}
+function areaChart(canvas,series,height){
+  const H=height||150;
+  canvas._draw=(hi)=>{
+    const {g,w}=ctx2d(canvas,H);
+    const vals=series.vals, n=vals.length, max=Math.max(1,...vals), pad=18;
+    const X = n>1 ? (i=>i*(w/(n-1))) : (()=>w/2);
+    const Y = v => pad+(H-pad*1.4)*(1-v/max);
+    g.strokeStyle=GRID; g.lineWidth=1;
+    for(let i=0;i<=3;i++){ const y=pad+(H-pad*1.4)*i/3; g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
+    const pts=vals.map((v,i)=>[X(i),Y(v)]);
+    const grad=g.createLinearGradient(0,0,0,H); grad.addColorStop(0,"rgba(182,255,0,.32)"); grad.addColorStop(1,"rgba(182,255,0,0)");
+    g.beginPath(); g.moveTo(pts.length?pts[0][0]:0,H-pad*.4);
+    pts.forEach(p=>g.lineTo(p[0],p[1])); g.lineTo(pts.length?pts[pts.length-1][0]:w,H-pad*.4); g.closePath(); g.fillStyle=grad; g.fill();
+    g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.strokeStyle=LIME; g.lineWidth=2; g.stroke();
+    g.fillStyle=MUT; g.font="10px Outfit,sans-serif"; g.textAlign="left"; g.fillText(num(max)+"/"+series.unit+" peak",2,11);
+    if(hi>=0 && hi<n){ const p=pts[hi];
+      g.strokeStyle="rgba(182,255,0,.4)"; g.lineWidth=1; g.beginPath(); g.moveTo(p[0],pad*.5); g.lineTo(p[0],H-pad*.4); g.stroke();
+      g.fillStyle=LIME; g.beginPath(); g.arc(p[0],p[1],3.5,0,7); g.fill(); g.strokeStyle="#04060d"; g.lineWidth=1.5; g.stroke(); }
+    canvas._geo={n,w};
+  };
+  canvas._hit=mx=>{ const gg=canvas._geo; if(!gg||gg.n<1) return -1; if(gg.n===1) return (mx>=0&&mx<=gg.w)?0:-1;
+    return Math.max(0,Math.min(gg.n-1,Math.round(mx/(gg.w/(gg.n-1))))); };
+  canvas._label=i=>({title:series.labels[i], value:num(series.vals[i])+" plays"});
+  canvas._draw(-1); attachHover(canvas);
 }
 
 function barsHour(canvas,hist){
-  const H=120; const {g,w,h}=ctx2d(canvas,H); const max=Math.max(1,...hist); const n=24; const bw=w/n;
-  for(let i=0;i<n;i++){ const bh=(H-22)*hist[i]/max; const x=i*bw;
-    g.fillStyle = (i>=12)?LIME:"#5e7d00"; g.globalAlpha=hist[i]?1:.25;
-    g.fillRect(x+1,H-bh-14,bw-2,Math.max(1,bh)); }
-  g.globalAlpha=1; g.fillStyle=MUT; g.font="9.5px Outfit,sans-serif";
-  for(const hr of [0,6,12,18]){ g.fillText(hr+":00", hr*bw+1, H-2); }
-  g.fillText("23", 23*bw-4, H-2);
+  const H=120;
+  canvas._draw=(hi)=>{
+    const {g,w}=ctx2d(canvas,H); const max=Math.max(1,...hist); const n=24, bw=w/n;
+    for(let i=0;i<n;i++){ const bh=(H-22)*hist[i]/max; const x=i*bw;
+      g.fillStyle = hi===i ? LIME : (i>=12)?LIME:"#5e7d00";
+      g.globalAlpha = hi===i ? 1 : (hist[i]?1:.25); if(hi>=0&&hi!==i) g.globalAlpha*=.5;
+      g.fillRect(x+1,H-bh-14,bw-2,Math.max(1,bh)); }
+    g.globalAlpha=1; g.fillStyle=MUT; g.font="9.5px Outfit,sans-serif"; g.textAlign="left";
+    for(const hr of [0,6,12,18]){ g.fillText(hr+":00", hr*bw+1, H-2); }
+    g.fillText("23", 23*bw-4, H-2);
+    canvas._geo={n,w};
+  };
+  canvas._hit=mx=>{ const gg=canvas._geo; if(!gg) return -1; const i=Math.floor(mx/(gg.w/gg.n)); return (i>=0&&i<gg.n)?i:-1; };
+  canvas._label=i=>({title:String(i).padStart(2,"0")+":00 UTC", value:num(hist[i]||0)+" plays"});
+  canvas._draw(-1); attachHover(canvas);
 }
 
 function histChart(canvas,hist){
@@ -354,17 +468,25 @@ function histChart(canvas,hist){
 }
 
 function pvsChart(canvas,games){
-  const H=120; const {g,w,h}=ctx2d(canvas,H); const top=games.slice(0,8);
-  const maxP=Math.max(1,...top.map(x=>x.plays)), maxU=Math.max(1,...top.map(x=>x.unique));
-  const n=top.length, slot=w/n;
-  top.forEach((x,i)=>{ const cx=i*slot; const bw=slot/2-3;
-    const ph=(H-26)*x.plays/maxP, uh=(H-26)*x.unique/maxU;
-    g.fillStyle=LIME; g.fillRect(cx+3,H-ph-16,bw,Math.max(1,ph));
-    g.fillStyle="#3a5a8f"; g.fillRect(cx+3+bw+2,H-uh-16,bw,Math.max(1,uh));
-    g.save(); g.translate(cx+slot/2,H-3); g.fillStyle=MUT; g.font="9px Outfit,sans-serif"; g.textAlign="center";
-    g.fillText((x.name||"").slice(0,8),0,0); g.restore(); });
-  g.fillStyle=LIME; g.font="9.5px Outfit"; g.fillText("■ plays",2,10);
-  g.fillStyle="#3a5a8f"; g.fillText("■ players",58,10);
+  const H=120, top=games.slice(0,8);
+  canvas._draw=(hi)=>{
+    const {g,w}=ctx2d(canvas,H);
+    const maxP=Math.max(1,...top.map(x=>x.plays)), maxU=Math.max(1,...top.map(x=>x.unique));
+    const n=top.length, slot=w/n;
+    top.forEach((x,i)=>{ const cx=i*slot, bw=slot/2-3;
+      const ph=(H-26)*x.plays/maxP, uh=(H-26)*x.unique/maxU;
+      g.globalAlpha = (hi<0||hi===i)?1:.4;
+      g.fillStyle=LIME; g.fillRect(cx+3,H-ph-16,bw,Math.max(1,ph));
+      g.fillStyle="#3a5a8f"; g.fillRect(cx+3+bw+2,H-uh-16,bw,Math.max(1,uh)); g.globalAlpha=1;
+      g.save(); g.translate(cx+slot/2,H-3); g.fillStyle=MUT; g.font="9px Outfit,sans-serif"; g.textAlign="center";
+      g.fillText((x.name||"").slice(0,8),0,0); g.restore(); });
+    g.textAlign="left"; g.fillStyle=LIME; g.font="9.5px Outfit"; g.fillText("■ plays",2,10);
+    g.fillStyle="#3a5a8f"; g.fillText("■ players",58,10);
+    canvas._geo={n,w,slot};
+  };
+  canvas._hit=mx=>{ const gg=canvas._geo; if(!gg) return -1; const i=Math.floor(mx/gg.slot); return (i>=0&&i<gg.n)?i:-1; };
+  canvas._label=i=>({title:top[i].name||"—", value:num(top[i].plays)+" plays · "+num(top[i].unique)+" players"});
+  canvas._draw(-1); attachHover(canvas);
 }
 
 function sparkline(daily,n,w,h){
@@ -381,12 +503,14 @@ function sparkline(daily,n,w,h){
 function lastAll(n){ return lastDays(DATA.dailyAll,n); }
 function renderCards(){
   const d=DATA, top=d.games[0];
+  const d24n=lastAll(1), d24p=sumWindow(d.dailyAll,1,1);
+  const d7n=lastAll(7),  d7p=sumWindow(d.dailyAll,7,7);
   const C=[
     ["Live games",num(d.totalGames),"",0],
     ["Total plays",comp(d.totalPlays),"recorded scores",1],
     ["Unique players",comp(d.globalUnique),"across all games",1],
-    ["Plays · 24h",num(lastAll(1)),"",0],
-    ["Plays · 7d",num(lastAll(7)),"",0],
+    ["Plays · 24h",num(d24n),("vs prev day"+deltaBadge(d24n,d24p)),0],
+    ["Plays · 7d",num(d7n),("vs prev 7d"+deltaBadge(d7n,d7p)),0],
     ["Most played",top?top.name:"—",top?comp(top.plays)+" plays":"",0],
   ];
   $("cards").innerHTML=C.map((c,i)=>`<div class="card${i<3?" hero":""}"><div class="k">${c[0]}</div>`
@@ -400,11 +524,12 @@ function renderTopGames(){
     +`<span class="val">${comp(x.plays)}</span></li>`).join("");
 }
 function renderRows(){
-  const games=[...DATA.games].sort((a,b)=>{ let x=a[sortKey],y=b[sortKey];
+  const games=[...DATA.games].filter(g=>!searchTerm||(g.name||"").toLowerCase().includes(searchTerm)).sort((a,b)=>{ let x=a[sortKey],y=b[sortKey];
     if(sortKey==="name") return sortDir*String(x).localeCompare(String(y));
     if(sortKey==="lastPlay"||sortKey==="firstPlay"){ x=x?Date.parse(x):0; y=y?Date.parse(y):0; }
     return sortDir*(x>y?1:x<y?-1:0); });
   const tb=$("rows"); tb.innerHTML="";
+  if(!games.length){ tb.innerHTML=`<tr><td colspan="7" class="mut" style="text-align:center;padding:22px">No games match “${esc(searchTerm)}”.</td></tr>`; return; }
   for(const g of games){ const tr=document.createElement("tr"); tr.onclick=()=>openModal(g);
     tr.innerHTML=`<td class="name"><img loading="lazy" src="${g.icon||""}" onerror="this.style.visibility='hidden'"/>`
       +`<b>${esc(g.name)}</b>${g.capped?'<span class="pill">capped</span>':''}</td>`
@@ -415,9 +540,20 @@ function renderRows(){
       +`<td class="r mut">${ago(g.lastPlay)}</td><td></td>`;
     tr.lastChild.appendChild(sparkline(g.daily,30,92,22)); tb.appendChild(tr); }
 }
+function renderRangeSeg(){ $("rangeSeg").innerHTML=RANGES.map(([v,l])=>`<button data-r="${v}" class="${v===trendRange?"on":""}">${l}</button>`).join(""); }
+function updateTrend(){
+  const days=rangeDays();
+  areaChart($("trend"),buildSeries(DATA.dailyAll,days),150);
+  const lbl = trendRange==="all" ? "all time" : trendRange==="365" ? "last 12 months" : "last "+trendRange+" days";
+  $("trendRange").textContent="· "+lbl+" · all games";
+  const bd=busiestDay(days);
+  $("trendPeak").innerHTML = bd&&bd.v ? `🔥 Busiest day &middot; <b>${fmtDay(bd.d)}</b> &middot; ${num(bd.v)} plays` : "";
+  renderRangeSeg();
+}
 function renderCharts(){
-  areaChart($("trend"),DATA.dailyAll,30);
-  if(DATA.hourAll) barsHour($("hour"),DATA.hourAll);
+  updateTrend();
+  if(DATA.hourAll){ barsHour($("hour"),DATA.hourAll); const b=busiestHour();
+    $("hourPeak").innerHTML = b.v ? `🔥 Busiest hour &middot; <b>${String(b.i).padStart(2,"0")}:00 UTC</b> &middot; ${num(b.v)} plays` : ""; }
   pvsChart($("pvs"),DATA.games);
 }
 function renderPlayers(){
@@ -426,12 +562,16 @@ function renderPlayers(){
   if(!ps.length){ panel.style.display="none"; return; }
   panel.style.display="";
   const max=Math.max(1,...ps.map(p=>p.plays));
-  $("players").innerHTML=ps.slice(0,20).map((p,i)=>`<li data-uid="${escA(p.uid)}" title="click for ${esc(p.username||"anon")}'s breakdown"><span class="rank">${p.rank}</span>`
+  const shown=Math.min(playersShown,ps.length);
+  $("players").innerHTML=ps.slice(0,shown).map((p,i)=>`<li data-uid="${escA(p.uid)}" title="click for ${esc(p.username||"anon")}'s breakdown"><span class="rank">${p.rank}</span>`
     +`<img loading="lazy" src="${p.pfp||""}" onerror="this.style.visibility='hidden'"/>`
     +`<span class="nm">${esc(p.username||"anon")}</span>`
     +`<span class="track"><span class="fill" style="width:${(p.plays/max*100).toFixed(1)}%"></span></span>`
     +`<span class="val">${num(p.plays)}</span>`
     +`<span class="gm" title="distinct games played">${p.games} ${p.games===1?"game":"games"}</span></li>`).join("");
+  const btn=$("morePlayers");
+  if(ps.length>20){ btn.style.display=""; btn.textContent = shown<ps.length ? `See more (${ps.length-shown} more)` : "Show less"; }
+  else btn.style.display="none";
 }
 // Resolve a player by user id (from the baked `players` map) and open their card.
 // Used by both the global most-active list and the names inside a game modal.
@@ -494,7 +634,7 @@ function openModal(g){
     +`<div class="sect"><h4>Most active <span style="font-weight:400;color:var(--mut);font-size:11px">· by plays</span></h4><ul class="lb">${mp}</ul></div></div>`
     +`<div class="sect" style="margin-top:14px"><h4>Recent plays</h4><ul class="feed">${feed}</ul></div>`;
   $("ov").classList.add("on");
-  requestAnimationFrame(()=>{ areaChart($("mDaily"),g.daily,30,100);
+  requestAnimationFrame(()=>{ areaChart($("mDaily"),buildSeries(g.daily,30),100);
     if(g.scoreHist) histChart($("mHist"),g.scoreHist); if(g.hourHist) barsHour($("mHour"),g.hourHist); });
 }
 function closeModal(){ $("ov").classList.remove("on"); }
@@ -510,6 +650,26 @@ $("players").addEventListener("click",e=>{ const li=e.target.closest("li[data-ui
 $("modal").addEventListener("click",e=>{ const li=e.target.closest("li[data-uid]"); if(li) openPlayerById(li.dataset.uid); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
 window.addEventListener("resize",()=>{ if(DATA && $("app").style.display!=="none") renderCharts(); });
+
+// Range selector (delegated — the buttons are re-rendered on every trend update).
+$("rangeSeg").addEventListener("click",e=>{ const b=e.target.closest("button[data-r]"); if(!b) return; trendRange=b.dataset.r; updateTrend(); });
+// Show more / fewer of the most-active players (data for up to 50 is already loaded).
+$("morePlayers").onclick=()=>{ const ps=DATA.topPlayers||[]; playersShown = playersShown<ps.length ? ps.length : 20; renderPlayers(); };
+// Live games-table name filter.
+$("search").addEventListener("input",e=>{ searchTerm=e.target.value.trim().toLowerCase(); renderRows(); });
+// Export the games table as CSV.
+function exportCSV(){
+  if(!DATA) return;
+  const q=v=>{ const s=String(v??""); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const cols=["Game","First play","Plays","Unique players","Top score","Top scorer","Last play","Record created"];
+  const rows=[...DATA.games].sort((a,b)=>b.plays-a.plays).map(g=>
+    [g.name,launchOf(g)||"",g.plays,g.unique,g.topScore,g.topUser||"",g.lastPlay||"",g.createdAt||""]);
+  const csv=[cols,...rows].map(r=>r.map(q).join(",")).join("\r\n");
+  const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"}), url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download="remix-analytics-"+(DATA.generatedAt||"").slice(0,10)+".csv";
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+$("csvBtn").onclick=exportCSV;
 
 /* ---------- data flow ---------- */
 async function loadData(){
